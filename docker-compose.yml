@@ -1,0 +1,13 @@
+services:
+  codex2api:
+    build: .
+    image: ghcr.io/arocial/codex2api:latest
+    container_name: codex2api
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - codex-home:/root/.codex
+    restart: unless-stopped
+
+volumes:
+  codex-home:
