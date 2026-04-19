@@ -8,7 +8,7 @@ name = "codex2api"
 path = "src/main.rs"
 
 [dependencies]
-codex-login = { path = "../codex/codex-rs/login" }
+codex-login = { git = "https://github.com/openai/codex", package= "codex-login" }
 axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio"] }
 tokio = { version = "1", features = ["full"] }
 reqwest = { version = "0.12", features = ["stream", "json"] }
