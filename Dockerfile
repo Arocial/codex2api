@@ -24,4 +24,4 @@ ENV CODEX_HOME=/root/.codex
 EXPOSE 8080
 
 ENTRYPOINT ["/usr/local/bin/codex2api"]
-CMD ["--listen", "0.0.0.0:8080"]
+CMD ["--listen", "0.0.0.0:3402"]

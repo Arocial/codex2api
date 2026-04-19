@@ -18,7 +18,7 @@ struct Cli {
     command: Option<Command>,
 
     /// Local address to listen on.
-    #[arg(long, default_value = "127.0.0.1:8080")]
+    #[arg(long, default_value = "127.0.0.1:3402")]
     listen: SocketAddr,
 
     /// Codex home directory (default: ~/.codex).

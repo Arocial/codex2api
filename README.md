@@ -38,7 +38,7 @@ This opens a browser window for the ChatGPT PKCE OAuth flow and writes credentia
 codex2api
 ```
 
-The server listens on `127.0.0.1:8080` by default.
+The server listens on `127.0.0.1:3402` by default.
 
 ### Options
 
@@ -49,7 +49,7 @@ Commands:
   login  Log in to ChatGPT / OpenAI using the browser-based PKCE flow
 
 Options:
-      --listen <LISTEN>          Local address to listen on [default: 127.0.0.1:8080]
+      --listen <LISTEN>          Local address to listen on [default: 127.0.0.1:3402]
       --codex-home <CODEX_HOME>  Codex home directory [default: ~/.codex]
   -h, --help                     Print help
 ```
