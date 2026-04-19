@@ -1,0 +1,21 @@
+[package]
+name = "codex2api"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "codex2api"
+path = "src/main.rs"
+
+[dependencies]
+codex-login = { path = "../codex/codex-rs/login" }
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio"] }
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.12", features = ["stream", "json"] }
+serde_json = "1"
+bytes = "1"
+clap = { version = "4", features = ["derive"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+http = "1"
+anyhow = "1"
