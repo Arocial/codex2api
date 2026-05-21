@@ -21,7 +21,7 @@ RUN apt-get update && \
 COPY --from=builder /usr/local/bin/codex2api /usr/local/bin/codex2api
 
 ENV CODEX_HOME=/root/.codex
-EXPOSE 8080
+EXPOSE 3402
 
 ENTRYPOINT ["/usr/local/bin/codex2api"]
 CMD ["--listen", "0.0.0.0:3402"]
