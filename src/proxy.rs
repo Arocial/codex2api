@@ -7,8 +7,7 @@ use std::sync::Arc;
 
 use crate::state::AppState;
 
-const BACKEND_RESPONSES_URL: &str = "https://chatgpt.com/backend-api/codex/responses";
-const BACKEND_MODELS_URL: &str = "https://chatgpt.com/backend-api/codex/models";
+pub const DEFAULT_BACKEND_BASE_URL: &str = "https://chatgpt.com/backend-api/codex";
 
 enum Method {
     Get,
@@ -121,7 +120,8 @@ pub async fn responses_handler(
         StatusCode::BAD_REQUEST
     })?;
 
-    let resp = do_request_with_retry(&state, Method::Post, BACKEND_RESPONSES_URL, Some(prepared))
+    let url = format!("{}/responses", state.backend_base_url);
+    let resp = do_request_with_retry(&state, Method::Post, &url, Some(prepared))
         .await
         .map_err(|err| {
             tracing::error!("Backend request failed: {err}");
@@ -135,7 +135,8 @@ pub async fn responses_handler(
 pub async fn models_handler(
     State(state): State<Arc<AppState>>,
 ) -> Result<Response<Body>, StatusCode> {
-    let resp = do_request_with_retry(&state, Method::Get, BACKEND_MODELS_URL, None)
+    let url = format!("{}/models", state.backend_base_url);
+    let resp = do_request_with_retry(&state, Method::Get, &url, None)
         .await
         .map_err(|err| {
             tracing::error!("Models request failed: {err}");

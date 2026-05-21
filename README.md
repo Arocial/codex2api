@@ -49,12 +49,14 @@ Commands:
   login  Log in to ChatGPT / OpenAI using the browser-based PKCE flow
 
 Options:
-      --listen <LISTEN>          Local address to listen on [default: 127.0.0.1:3402]
-      --codex-home <CODEX_HOME>  Codex home directory [default: ~/.codex]
-  -h, --help                     Print help
+      --listen <LISTEN>                      Local address to listen on [default: 127.0.0.1:3402]
+      --codex-home <CODEX_HOME>              Codex home directory [default: ~/.codex]
+      --backend-base-url <BACKEND_BASE_URL>  Backend base URL (env: CODEX2API_BACKEND_BASE_URL)
+                                             [default: https://chatgpt.com/backend-api/codex]
+  -h, --help                                 Print help
 ```
 
-`CODEX_HOME` environment variable is also respected.
+`CODEX_HOME` and `CODEX2API_BACKEND_BASE_URL` environment variables are also respected. Override `--backend-base-url` for FedRAMP, enterprise, or staging endpoints.
 
 ## API
 

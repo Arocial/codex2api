@@ -24,6 +24,11 @@ struct Cli {
     /// Codex home directory (default: ~/.codex).
     #[arg(long)]
     codex_home: Option<PathBuf>,
+
+    /// Backend base URL. `/responses` and `/models` are appended to this.
+    /// Override for FedRAMP, enterprise, or staging endpoints.
+    #[arg(long, env = "CODEX2API_BACKEND_BASE_URL", default_value = proxy::DEFAULT_BACKEND_BASE_URL)]
+    backend_base_url: String,
 }
 
 #[derive(Subcommand)]
@@ -55,7 +60,7 @@ async fn main() -> anyhow::Result<()> {
 
     match cli.command {
         Some(Command::Login) => run_login(codex_home).await?,
-        None => run_server(codex_home, cli.listen).await?,
+        None => run_server(codex_home, cli.listen, cli.backend_base_url).await?,
     }
 
     Ok(())
@@ -75,8 +80,14 @@ async fn run_login(codex_home: PathBuf) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn run_server(codex_home: PathBuf, listen: SocketAddr) -> anyhow::Result<()> {
-    let state = Arc::new(AppState::new(codex_home));
+async fn run_server(
+    codex_home: PathBuf,
+    listen: SocketAddr,
+    backend_base_url: String,
+) -> anyhow::Result<()> {
+    // Trim trailing slashes so callers can pass either form.
+    let base = backend_base_url.trim_end_matches('/').to_string();
+    let state = Arc::new(AppState::new(codex_home, base));
 
     let app = Router::new()
         .route("/v1/responses", post(proxy::responses_handler))
