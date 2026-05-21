@@ -2,6 +2,7 @@ mod proxy;
 mod state;
 
 use axum::Router;
+use axum::middleware;
 use axum::routing::{get, post};
 use clap::{Parser, Subcommand};
 use codex_login::{AuthCredentialsStoreMode, CLIENT_ID, ServerOptions, run_login_server};
@@ -29,12 +30,31 @@ struct Cli {
     /// Override for FedRAMP, enterprise, or staging endpoints.
     #[arg(long, env = "CODEX2API_BACKEND_BASE_URL", default_value = proxy::DEFAULT_BACKEND_BASE_URL)]
     backend_base_url: String,
+
+    /// API key required from clients in the `Authorization: Bearer ...` header
+    /// on `/v1/*` routes. If unset, a random key is generated at startup and
+    /// printed to the log.
+    #[arg(long, env = "CODEX2API_API_KEY")]
+    api_key: Option<String>,
 }
 
 #[derive(Subcommand)]
 enum Command {
     /// Log in to ChatGPT / OpenAI using the browser-based PKCE flow.
     Login,
+}
+
+/// 32-char alphanumeric suffix, ~190 bits of entropy. Prefixed `sk-` to match
+/// the convention OpenAI-compatible clients expect.
+fn generate_api_key() -> String {
+    use rand::Rng;
+    use rand::distr::Alphanumeric;
+    let suffix: String = rand::rng()
+        .sample_iter(Alphanumeric)
+        .take(32)
+        .map(char::from)
+        .collect();
+    format!("sk-{suffix}")
 }
 
 fn default_codex_home() -> PathBuf {
@@ -60,7 +80,11 @@ async fn main() -> anyhow::Result<()> {
 
     match cli.command {
         Some(Command::Login) => run_login(codex_home).await?,
-        None => run_server(codex_home, cli.listen, cli.backend_base_url).await?,
+        None => {
+            // Treat an empty env var the same as unset.
+            let api_key = cli.api_key.filter(|s| !s.is_empty());
+            run_server(codex_home, cli.listen, cli.backend_base_url, api_key).await?
+        }
     }
 
     Ok(())
@@ -84,14 +108,37 @@ async fn run_server(
     codex_home: PathBuf,
     listen: SocketAddr,
     backend_base_url: String,
+    api_key: Option<String>,
 ) -> anyhow::Result<()> {
     // Trim trailing slashes so callers can pass either form.
     let base = backend_base_url.trim_end_matches('/').to_string();
-    let state = Arc::new(AppState::new(codex_home, base));
+    let api_key = match api_key {
+        Some(k) => {
+            tracing::info!("Client bearer auth enabled (CODEX2API_API_KEY set)");
+            k
+        }
+        None => {
+            let k = generate_api_key();
+            // Log at WARN so it stands out — this key is ephemeral and must be
+            // captured from logs to be reused across restarts.
+            tracing::warn!(
+                "CODEX2API_API_KEY not set — generated ephemeral key: {k} \
+                 (set CODEX2API_API_KEY to make it stable)"
+            );
+            k
+        }
+    };
+    let state = Arc::new(AppState::new(codex_home, base, api_key));
 
+    // `route_layer` only applies to routes registered *before* it, so
+    // `/healthz` (added after) stays publicly reachable.
     let app = Router::new()
         .route("/v1/responses", post(proxy::responses_handler))
         .route("/v1/models", get(proxy::models_handler))
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            proxy::require_bearer,
+        ))
         .route("/healthz", get(|| async { "ok" }))
         .with_state(state);
 

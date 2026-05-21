@@ -1,6 +1,7 @@
 use axum::body::Body;
-use axum::extract::State;
+use axum::extract::{Request, State};
 use axum::http::StatusCode;
+use axum::middleware::Next;
 use axum::response::Response;
 use bytes::Bytes;
 use std::sync::Arc;
@@ -132,6 +133,24 @@ fn stream_response(resp: reqwest::Response) -> Result<Response<Body>, StatusCode
     builder
         .body(Body::from_stream(stream))
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+/// Middleware that requires `Authorization: Bearer <api_key>` on protected
+/// routes.
+pub async fn require_bearer(
+    State(state): State<Arc<AppState>>,
+    req: Request,
+    next: Next,
+) -> Result<Response, StatusCode> {
+    let provided = req
+        .headers()
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|h| h.strip_prefix("Bearer "));
+    match provided {
+        Some(p) if p == state.api_key => Ok(next.run(req).await),
+        _ => Err(StatusCode::UNAUTHORIZED),
+    }
 }
 
 /// POST /v1/responses — proxy to the Codex backend responses endpoint.

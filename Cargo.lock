@@ -1140,6 +1140,7 @@ dependencies = [
  "clap",
  "codex-login",
  "http",
+ "rand 0.9.4",
  "reqwest",
  "serde_json",
  "tokio",
