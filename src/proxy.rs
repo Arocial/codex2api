@@ -10,6 +10,11 @@ use crate::state::AppState;
 const BACKEND_RESPONSES_URL: &str = "https://chatgpt.com/backend-api/codex/responses";
 const BACKEND_MODELS_URL: &str = "https://chatgpt.com/backend-api/codex/models";
 
+enum Method {
+    Get,
+    Post,
+}
+
 /// Inject required body defaults before forwarding to the backend.
 ///
 /// - `store`: defaults to `false` if absent (backend rejects missing `store`); client's
@@ -28,8 +33,9 @@ fn apply_body_defaults(body: Bytes) -> anyhow::Result<Bytes> {
 /// Build and send an authenticated request to the backend.
 async fn do_request(
     state: &AppState,
+    method: &Method,
     url: &str,
-    body: Option<Bytes>,
+    body: Option<&Bytes>,
 ) -> anyhow::Result<reqwest::Response> {
     let auth = state
         .auth_manager
@@ -41,10 +47,9 @@ async fn do_request(
     let account_id = auth.get_account_id();
     let is_fedramp = auth.is_fedramp_account();
 
-    let mut req = if body.is_some() {
-        state.http_client.post(url)
-    } else {
-        state.http_client.get(url)
+    let mut req = match method {
+        Method::Get => state.http_client.get(url),
+        Method::Post => state.http_client.post(url),
     };
 
     req = req.header("Authorization", format!("Bearer {access_token}"));
@@ -57,10 +62,34 @@ async fn do_request(
         req = req.header("X-OpenAI-Fedramp", "true");
     }
     if let Some(b) = body {
-        req = req.body(b);
+        // Bytes clone is an Arc bump, not a buffer copy.
+        req = req.body(b.clone());
     }
 
     Ok(req.send().await?)
+}
+
+/// Send an authenticated request, retrying once after a token refresh on 401.
+async fn do_request_with_retry(
+    state: &AppState,
+    method: Method,
+    url: &str,
+    body: Option<Bytes>,
+) -> anyhow::Result<reqwest::Response> {
+    let resp = do_request(state, &method, url, body.as_ref()).await?;
+    if resp.status() != reqwest::StatusCode::UNAUTHORIZED {
+        return Ok(resp);
+    }
+
+    tracing::info!("Received 401, attempting token refresh");
+    if let Err(err) = state.auth_manager.refresh_token().await {
+        tracing::error!("Token refresh failed: {err}");
+        // Refresh failed: return the original 401 to the client rather than
+        // making a doomed second request.
+        return Ok(resp);
+    }
+
+    do_request(state, &method, url, body.as_ref()).await
 }
 
 /// Stream a backend response back to the client with zero-copy SSE passthrough.
@@ -92,28 +121,12 @@ pub async fn responses_handler(
         StatusCode::BAD_REQUEST
     })?;
 
-    let resp = do_request(&state, BACKEND_RESPONSES_URL, Some(prepared.clone()))
+    let resp = do_request_with_retry(&state, Method::Post, BACKEND_RESPONSES_URL, Some(prepared))
         .await
         .map_err(|err| {
             tracing::error!("Backend request failed: {err}");
             StatusCode::BAD_GATEWAY
         })?;
-
-    // On 401, attempt one token refresh and retry with the same prepared body.
-    if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
-        tracing::info!("Received 401, attempting token refresh");
-        if let Err(err) = state.auth_manager.refresh_token().await {
-            tracing::error!("Token refresh failed: {err}");
-        }
-
-        let retry_resp = do_request(&state, BACKEND_RESPONSES_URL, Some(prepared))
-            .await
-            .map_err(|err| {
-                tracing::error!("Retry after refresh failed: {err}");
-                StatusCode::BAD_GATEWAY
-            })?;
-        return stream_response(retry_resp);
-    }
 
     stream_response(resp)
 }
@@ -122,7 +135,7 @@ pub async fn responses_handler(
 pub async fn models_handler(
     State(state): State<Arc<AppState>>,
 ) -> Result<Response<Body>, StatusCode> {
-    let resp = do_request(&state, BACKEND_MODELS_URL, None)
+    let resp = do_request_with_retry(&state, Method::Get, BACKEND_MODELS_URL, None)
         .await
         .map_err(|err| {
             tracing::error!("Models request failed: {err}");
