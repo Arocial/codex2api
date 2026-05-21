@@ -169,3 +169,68 @@ pub async fn models_handler(
 
     stream_response(resp)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::{Value, json};
+
+    fn defaults_as_json(input: &str) -> Value {
+        let out = apply_body_defaults(Bytes::from(input.to_string())).expect("ok");
+        serde_json::from_slice(&out).expect("valid JSON")
+    }
+
+    #[test]
+    fn store_defaults_to_false_when_absent() {
+        let v = defaults_as_json(r#"{"model":"gpt-5"}"#);
+        assert_eq!(v["store"], json!(false));
+        assert_eq!(v["stream"], json!(true));
+        assert_eq!(v["model"], json!("gpt-5"));
+    }
+
+    #[test]
+    fn explicit_store_is_preserved() {
+        let v = defaults_as_json(r#"{"store":true}"#);
+        assert_eq!(v["store"], json!(true));
+        assert_eq!(v["stream"], json!(true));
+
+        let v = defaults_as_json(r#"{"store":false}"#);
+        assert_eq!(v["store"], json!(false));
+    }
+
+    #[test]
+    fn stream_is_forced_true_even_if_client_sends_false() {
+        let v = defaults_as_json(r#"{"stream":false}"#);
+        assert_eq!(v["stream"], json!(true));
+    }
+
+    #[test]
+    fn non_object_body_is_rejected() {
+        assert!(apply_body_defaults(Bytes::from_static(b"[1,2,3]")).is_err());
+        assert!(apply_body_defaults(Bytes::from_static(b"\"hi\"")).is_err());
+        assert!(apply_body_defaults(Bytes::from_static(b"42")).is_err());
+        assert!(apply_body_defaults(Bytes::from_static(b"null")).is_err());
+    }
+
+    #[test]
+    fn invalid_json_is_rejected() {
+        assert!(apply_body_defaults(Bytes::from_static(b"not json")).is_err());
+        assert!(apply_body_defaults(Bytes::from_static(b"{")).is_err());
+    }
+
+    #[test]
+    fn hop_by_hop_classification() {
+        for h in [
+            "connection",
+            "Keep-Alive",
+            "TRANSFER-ENCODING",
+            "content-length",
+            "upgrade",
+        ] {
+            assert!(is_hop_by_hop(h), "{h} should be hop-by-hop");
+        }
+        for h in ["content-type", "x-request-id", "cache-control"] {
+            assert!(!is_hop_by_hop(h), "{h} should NOT be hop-by-hop");
+        }
+    }
+}
