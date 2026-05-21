@@ -1,6 +1,8 @@
 # codex2api
 
-A local proxy that exposes a standard [OpenAI Responses API](https://platform.openai.com/docs/api-reference/responses) backed by your Codex subscription, so any Responses-API-compatible client can use Codex models without a separate API key.
+A local proxy that exposes the [OpenAI Responses API](https://platform.openai.com/docs/api-reference/responses) backed by your Codex subscription, so any Responses-API-compatible client can use Codex models without a separate API key.
+
+Only the Responses API is exposed — there is no Chat Completions endpoint. Clients must speak the Responses API directly.
 
 ## How it works
 
@@ -94,7 +96,12 @@ src/
 
 ## Notes
 
+- Only the Responses API (`/v1/responses`, `/v1/models`) is proxied. Chat Completions and other OpenAI endpoints are not exposed.
 - Only SSE streaming responses are supported. Non-streaming mode is not implemented.
 - The HTTP client reuses the same User-Agent and `originator` headers as the Codex CLI (`codex_cli_rs`).
 - Token refresh is handled automatically. A 401 response triggers one refresh-and-retry cycle.
 - `codex-login` is referenced as a path dependency from the Codex source tree (`../codex/codex-rs/login`). The Codex source must be present at that relative path.
+
+## Traffic fingerprint vs. the Codex CLI
+
+The proxy sends the Codex CLI's `User-Agent` and `originator` headers, but is **not** byte-for-byte indistinguishable from a direct Codex CLI session. The CLI also attaches per-session identifiers (`session-id`, `thread-id`, `x-client-request-id`, `x-codex-installation-id`, `x-codex-window-id`, `OpenAI-Beta`, occasionally `x-oai-attestation`) and a fully-populated request body (`instructions`, `prompt_cache_key`, `service_tier`, …) that this proxy does not synthesize — it forwards whatever the client sends. A server-side observer can therefore tell the two apart if it looks closely. Perfect mimicry would additionally require a stable installation ID and device attestation, which is out of scope here.
