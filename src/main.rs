@@ -92,10 +92,42 @@ async fn run_server(
     let app = Router::new()
         .route("/v1/responses", post(proxy::responses_handler))
         .route("/v1/models", get(proxy::models_handler))
+        .route("/healthz", get(|| async { "ok" }))
         .with_state(state);
 
     tracing::info!("Listening on {listen}");
     let listener = tokio::net::TcpListener::bind(listen).await?;
-    axum::serve(listener, app).await?;
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await?;
     Ok(())
+}
+
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        if let Err(err) = tokio::signal::ctrl_c().await {
+            tracing::error!("failed to install Ctrl-C handler: {err}");
+        }
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut sig) => {
+                sig.recv().await;
+            }
+            Err(err) => {
+                tracing::error!("failed to install SIGTERM handler: {err}");
+                std::future::pending::<()>().await;
+            }
+        }
+    };
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {},
+        _ = terminate => {},
+    }
+    tracing::info!("shutdown signal received, draining...");
 }

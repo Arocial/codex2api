@@ -4,8 +4,14 @@ use axum::http::StatusCode;
 use axum::response::Response;
 use bytes::Bytes;
 use std::sync::Arc;
+use std::time::Duration;
 
 use crate::state::AppState;
+
+/// Cap on short, non-streaming backend calls (e.g. /models). /responses is
+/// streaming and may legitimately run for many minutes, so it gets no total
+/// timeout — connect-time issues surface as reqwest errors regardless.
+const SHORT_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
 pub const DEFAULT_BACKEND_BASE_URL: &str = "https://chatgpt.com/backend-api/codex";
 
@@ -47,7 +53,7 @@ async fn do_request(
     let is_fedramp = auth.is_fedramp_account();
 
     let mut req = match method {
-        Method::Get => state.http_client.get(url),
+        Method::Get => state.http_client.get(url).timeout(SHORT_REQUEST_TIMEOUT),
         Method::Post => state.http_client.post(url),
     };
 

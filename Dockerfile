@@ -15,7 +15,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 FROM debian:bookworm-slim AS runtime
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends ca-certificates libssl3 && \
+    apt-get install -y --no-install-recommends ca-certificates libssl3 curl && \
     rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /usr/local/bin/codex2api /usr/local/bin/codex2api
