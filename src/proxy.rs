@@ -21,11 +21,11 @@ enum Method {
 /// - `stream`: always forced to `true` (this proxy only supports SSE passthrough).
 fn apply_body_defaults(body: Bytes) -> anyhow::Result<Bytes> {
     let mut json: serde_json::Value = serde_json::from_slice(&body)?;
-    if let Some(obj) = json.as_object_mut() {
-        obj.entry("store")
-            .or_insert(serde_json::Value::Bool(false));
-        obj.insert("stream".to_string(), serde_json::Value::Bool(true));
-    }
+    let obj = json
+        .as_object_mut()
+        .ok_or_else(|| anyhow::anyhow!("request body must be a JSON object"))?;
+    obj.entry("store").or_insert(serde_json::Value::Bool(false));
+    obj.insert("stream".to_string(), serde_json::Value::Bool(true));
     Ok(Bytes::from(serde_json::to_vec(&json)?))
 }
 
@@ -91,14 +91,32 @@ async fn do_request_with_retry(
     do_request(state, &method, url, body.as_ref()).await
 }
 
-/// Stream a backend response back to the client with zero-copy SSE passthrough.
+/// Hop-by-hop headers (RFC 7230 §6.1) plus content-length, which hyper recomputes
+/// for the outgoing stream. Forwarding the upstream value risks mismatched framing.
+fn is_hop_by_hop(name: &str) -> bool {
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        "connection"
+            | "keep-alive"
+            | "proxy-authenticate"
+            | "proxy-authorization"
+            | "te"
+            | "trailers"
+            | "transfer-encoding"
+            | "upgrade"
+            | "content-length"
+    )
+}
+
+/// Stream a backend response back to the client. Upstream status and body —
+/// including error responses — are forwarded verbatim so clients see real
+/// backend error messages instead of an opaque proxy status.
 fn stream_response(resp: reqwest::Response) -> Result<Response<Body>, StatusCode> {
     let status = resp.status();
     let mut builder = Response::builder().status(status.as_u16());
 
     for (name, value) in resp.headers() {
-        // Skip transfer-encoding; axum/hyper will handle framing.
-        if name == "transfer-encoding" {
+        if is_hop_by_hop(name.as_str()) {
             continue;
         }
         builder = builder.header(name.as_str(), value.as_bytes());
