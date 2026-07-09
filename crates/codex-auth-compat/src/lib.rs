@@ -262,6 +262,16 @@ pub fn codex_user_agent() -> String {
     )
 }
 
+pub fn codex_tui_user_agent(version: &str) -> String {
+    let os = os_info::get();
+    format!(
+        "codex-tui/{version} ({} {}; {}) xterm (codex-tui; {version})",
+        os.os_type(),
+        os.version(),
+        os.architecture().unwrap_or("unknown")
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -334,5 +344,8 @@ mod tests {
     fn default_headers_match_codex_snapshot() {
         assert_eq!(codex_default_headers()["originator"], "codex_cli_rs");
         assert!(codex_user_agent().starts_with("codex_cli_rs/0.0.0 ("));
+        let tui = codex_tui_user_agent("1.2.3");
+        assert!(tui.starts_with("codex-tui/1.2.3 ("));
+        assert!(tui.ends_with(" xterm (codex-tui; 1.2.3)"));
     }
 }

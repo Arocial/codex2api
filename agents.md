@@ -33,6 +33,11 @@ refresh against a pinned Codex revision. Login delegates to the installed
 - **401 retry.** On a 401 response from the backend, call `auth_manager.refresh_token().await` once and retry. Do not retry more than once.
 - **Request limit.** Responses request bodies are limited to 32 MiB because
   they are parsed and serialized in memory.
+- **Session identity.** `X-Session-Id` takes precedence over `session-id`.
+  Session, thread, window, cache, and turn metadata must be derived from one
+  request context so header and body projections remain identical.
+- **Installation identity.** Reuse `$CODEX_HOME/installation_id`; never create
+  a new installation ID per request or process restart.
 - **Error format.** Proxy-generated API errors use the OpenAI-style
   `{ "error": { ... } }` JSON shape.
 

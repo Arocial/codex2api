@@ -147,7 +147,7 @@ async fn run_server(
             k
         }
     };
-    let state = Arc::new(AppState::new(codex_home, base, client_version, api_key));
+    let state = Arc::new(AppState::new(codex_home, base, client_version, api_key)?);
 
     // `route_layer` only applies to routes registered *before* it, so
     // `/healthz` (added after) stays publicly reachable.
