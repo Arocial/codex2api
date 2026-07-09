@@ -14,6 +14,7 @@ Authentication is shared with the Codex CLI: the same `~/.codex/auth.json` is us
 
 - A current stable Rust toolchain
 - A ChatGPT / OpenAI account with Codex access
+- The Codex CLI available as `codex` (needed for `codex2api login`)
 
 ## Build
 
@@ -31,7 +32,11 @@ The binary is at `target/release/codex2api`.
 codex2api login
 ```
 
-This opens a browser window for the ChatGPT PKCE OAuth flow and writes credentials to `~/.codex/auth.json`. If you have already run `codex login`, this step can be skipped — the same credentials are used.
+This delegates authentication to the installed `codex login` command, which
+is configured to write credentials to the shared `~/.codex/auth.json` instead
+of the OS keyring. If an existing `codex login` already created that file, this
+step can be skipped. Set `CODEX2API_CODEX_BIN` if the Codex executable is not
+named `codex`.
 
 ### 2. Start the proxy
 
@@ -50,7 +55,7 @@ startup; setting the variable is recommended so the key remains stable.
 Usage: codex2api [OPTIONS] [COMMAND]
 
 Commands:
-  login  Log in to ChatGPT / OpenAI using the browser-based PKCE flow
+  login  Log in by delegating to the installed Codex CLI
 
 Options:
       --listen <LISTEN>                      Local address to listen on [default: 127.0.0.1:3402]
@@ -74,7 +79,9 @@ CODEX2API_API_KEY=replace-with-a-long-random-secret
 ```
 
 Then start the service with `docker compose up -d`. The `.env` file is ignored
-by Git.
+by Git. The runtime image does not bundle the Codex CLI; authenticate on the
+host and copy `auth.json` into the container volume when it is not already
+populated.
 
 ## API
 
@@ -107,7 +114,7 @@ RUST_LOG=debug codex2api
 
 ```
 src/
-  main.rs    CLI entry point, login flow, server startup
+  main.rs    CLI entry point, delegated login, server startup
   state.rs   Shared application state (AuthManager, HTTP client)
   proxy.rs   Route handlers, body injection, SSE passthrough
 ```
@@ -116,9 +123,15 @@ src/
 
 - Only the Responses API (`/v1/responses`, `/v1/models`) is proxied. Chat Completions and other OpenAI endpoints are not exposed.
 - Only SSE streaming responses are supported. Non-streaming mode is not implemented.
-- The HTTP client reuses the same User-Agent and `originator` headers as the Codex CLI (`codex_cli_rs`).
+- The HTTP client uses the Codex CLI `originator` and a compatible Codex
+  User-Agent format.
 - Token refresh is handled automatically. A 401 response triggers one refresh-and-retry cycle.
-- `codex-login` is fetched from the OpenAI Codex Git repository and pinned by `Cargo.lock`.
+- Runtime authentication is implemented by the lightweight
+  `crates/codex-auth-compat` crate. It preserves the Codex auth file format,
+  refresh request, account/FedRAMP headers, originator, User-Agent format, and custom
+  CA behavior without compiling the full Codex dependency graph.
+- `scripts/check-codex-compat.sh /path/to/codex` checks whether the compatibility
+  layer's pinned upstream revision needs review.
 - Proxy-generated errors use the OpenAI-style `{ "error": { ... } }` JSON shape.
 
 ## Traffic fingerprint vs. the Codex CLI

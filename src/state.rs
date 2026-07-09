@@ -1,4 +1,4 @@
-use codex_login::{default_client::build_reqwest_client, AuthCredentialsStoreMode, AuthManager};
+use codex_auth_compat::{build_reqwest_client, AuthManager};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -15,14 +15,12 @@ pub struct AppState {
 
 impl AppState {
     pub fn new(codex_home: PathBuf, backend_base_url: String, api_key: String) -> Self {
-        let auth_manager = Arc::new(AuthManager::new(
-            codex_home,
-            /*enable_codex_api_key_env*/ false,
-            AuthCredentialsStoreMode::File,
-        ));
+        let http_client =
+            build_reqwest_client().expect("failed to build Codex-compatible HTTP client");
+        let auth_manager = Arc::new(AuthManager::new(codex_home, http_client.clone()));
         Self {
             auth_manager,
-            http_client: build_reqwest_client(),
+            http_client,
             backend_base_url,
             api_key,
         }

@@ -91,13 +91,14 @@ async fn do_request(
 ) -> anyhow::Result<reqwest::Response> {
     let auth = state
         .auth_manager
-        .auth()
+        .credentials()
         .await
+        .map_err(anyhow::Error::from)?
         .ok_or_else(|| anyhow::anyhow!("not authenticated — run `codex login` first"))?;
 
-    let access_token = auth.get_token()?;
-    let account_id = auth.get_account_id();
-    let is_fedramp = auth.is_fedramp_account();
+    let access_token = auth.access_token;
+    let account_id = auth.account_id;
+    let is_fedramp = auth.is_fedramp;
 
     let mut req = match method {
         Method::Get => state.http_client.get(url).timeout(SHORT_REQUEST_TIMEOUT),

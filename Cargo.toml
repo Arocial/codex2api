@@ -3,12 +3,16 @@ name = "codex2api"
 version = "0.1.0"
 edition = "2021"
 
+[workspace]
+members = [".", "crates/codex-auth-compat"]
+resolver = "2"
+
 [[bin]]
 name = "codex2api"
 path = "src/main.rs"
 
 [dependencies]
-codex-login = { git = "https://github.com/openai/codex", package= "codex-login" }
+codex-auth-compat = { path = "crates/codex-auth-compat" }
 axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio"] }
 tokio = { version = "1", features = ["full"] }
 reqwest = { version = "0.12", features = ["stream", "json"] }
@@ -20,7 +24,3 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 http = "1"
 anyhow = "1"
 rand = "0.9"
-
-[patch.crates-io]
-tokio-tungstenite = { git = "https://github.com/openai-oss-forks/tokio-tungstenite", rev = "132f5b39c862e3a970f731d709608b3e6276d5f6" }
-tungstenite = { git = "https://github.com/openai-oss-forks/tungstenite-rs", rev = "9200079d3b54a1ff51072e24d81fd354f085156f" }

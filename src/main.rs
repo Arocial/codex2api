@@ -6,7 +6,6 @@ use axum::middleware;
 use axum::routing::{get, post};
 use axum::Router;
 use clap::{Parser, Subcommand};
-use codex_login::{run_login_server, AuthCredentialsStoreMode, ServerOptions, CLIENT_ID};
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -44,7 +43,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Log in to ChatGPT / OpenAI using the browser-based PKCE flow.
+    /// Log in by delegating to the installed Codex CLI.
     Login,
 }
 
@@ -95,16 +94,16 @@ async fn main() -> anyhow::Result<()> {
 }
 
 async fn run_login(codex_home: PathBuf) -> anyhow::Result<()> {
-    let opts = ServerOptions::new(
-        codex_home,
-        CLIENT_ID.to_string(),
-        /*forced_chatgpt_workspace_id*/ None,
-        AuthCredentialsStoreMode::File,
-    );
-    let server = run_login_server(opts)?;
-    println!("Opening browser: {}", server.auth_url);
-    server.block_until_done().await?;
-    println!("Login successful.");
+    let codex = std::env::var("CODEX2API_CODEX_BIN").unwrap_or_else(|_| "codex".to_string());
+    let status = tokio::process::Command::new(&codex)
+        .arg("-c")
+        .arg("cli_auth_credentials_store=\"file\"")
+        .arg("login")
+        .env("CODEX_HOME", codex_home)
+        .status()
+        .await
+        .map_err(|err| anyhow::anyhow!("failed to run `{codex} login`: {err}"))?;
+    anyhow::ensure!(status.success(), "`{codex} login` exited with {status}");
     Ok(())
 }
 

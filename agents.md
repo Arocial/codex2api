@@ -2,7 +2,7 @@
 
 ## Project
 
-`codex2api` is a local HTTP proxy that exposes the OpenAI Responses API backed by a Codex subscription. It forwards `POST /v1/responses` and `GET /v1/models` to `https://chatgpt.com/backend-api/codex/` using OAuth tokens managed by the `codex-login` crate.
+`codex2api` is a local HTTP proxy that exposes the OpenAI Responses API backed by a Codex subscription. It forwards `POST /v1/responses` and `GET /v1/models` to `https://chatgpt.com/backend-api/codex/` using OAuth tokens shared with the Codex CLI.
 
 ## Build
 
@@ -11,8 +11,9 @@ cargo build
 cargo build --release
 ```
 
-`codex-login` is fetched from the OpenAI Codex Git repository and pinned by
-`Cargo.lock`.
+The lightweight `crates/codex-auth-compat` crate implements file auth and token
+refresh against a pinned Codex revision. Login delegates to the installed
+`codex login` command.
 
 ## Source layout
 
@@ -21,6 +22,8 @@ cargo build --release
 | `src/main.rs` | CLI (clap), `login` subcommand, server startup |
 | `src/state.rs` | `AppState`: `Arc<AuthManager>` + pre-configured `reqwest::Client` |
 | `src/proxy.rs` | Route handlers, body injection, SSE passthrough, 401 retry |
+| `crates/codex-auth-compat` | Codex-compatible auth file, JWT, refresh, and HTTP defaults |
+| `scripts/check-codex-compat.sh` | Detect upstream compatibility review requirements |
 
 ## Key invariants
 
