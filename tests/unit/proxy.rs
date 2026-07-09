@@ -3,10 +3,12 @@ use axum::http::HeaderValue;
 use serde_json::{json, Value};
 
 const CONTEXT_SESSION_ID: &str = "01890f3e-7b2c-7a1d-8e4f-123456789abc";
+const CONTEXT_TURN_ID: &str = "01890f3e-7b2c-7b2e-8e4f-123456789abc";
 
 fn test_context() -> CodexRequestContext {
     CodexRequestContext::new(
         Uuid::parse_str(CONTEXT_SESSION_ID).unwrap(),
+        Uuid::parse_str(CONTEXT_TURN_ID).unwrap(),
         Uuid::parse_str("f691edef-06a3-477d-9a17-7ae9ea4a991a").unwrap(),
     )
 }
@@ -70,6 +72,14 @@ fn session_id_precedence_and_absence() {
 }
 
 #[test]
+fn turn_id_is_read_from_x_turn_id() {
+    let mut headers = HeaderMap::new();
+    headers.insert("x-turn-id", HeaderValue::from_static("client-turn"));
+    assert_eq!(requested_turn_id(&headers).as_deref(), Some("client-turn"));
+    assert_eq!(requested_turn_id(&HeaderMap::new()), None);
+}
+
+#[test]
 fn codex_metadata_is_coherent_and_custom_metadata_survives() {
     let v = defaults_as_json(
         r#"{
@@ -100,7 +110,8 @@ fn codex_metadata_is_coherent_and_custom_metadata_survives() {
         turn_metadata["window_id"],
         format!("{CONTEXT_SESSION_ID}:0")
     );
-    assert_eq!(turn_metadata["turn_id"], metadata["turn_id"]);
+    assert_eq!(turn_metadata["turn_id"], CONTEXT_TURN_ID);
+    assert_eq!(metadata["turn_id"], CONTEXT_TURN_ID);
 }
 
 #[test]

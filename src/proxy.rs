@@ -91,9 +91,9 @@ struct CodexRequestContext {
 }
 
 impl CodexRequestContext {
-    fn new(session_id: Uuid, installation_id: Uuid) -> Self {
+    fn new(session_id: Uuid, turn_id: Uuid, installation_id: Uuid) -> Self {
         let session_id = session_id.to_string();
-        let turn_id = Uuid::now_v7().to_string();
+        let turn_id = turn_id.to_string();
         let window_id = format!("{session_id}:0");
         let turn_started_at_unix_ms = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -124,14 +124,22 @@ impl CodexRequestContext {
 }
 
 fn requested_session_id(headers: &HeaderMap) -> Option<String> {
-    ["x-session-id", "session-id"].iter().find_map(|name| {
-        headers
-            .get(*name)
-            .and_then(|value| value.to_str().ok())
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(str::to_string)
-    })
+    ["x-session-id", "session-id"]
+        .iter()
+        .find_map(|name| requested_id(headers, name))
+}
+
+fn requested_turn_id(headers: &HeaderMap) -> Option<String> {
+    requested_id(headers, "x-turn-id")
+}
+
+fn requested_id(headers: &HeaderMap, name: &str) -> Option<String> {
+    headers
+        .get(name)
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
 }
 
 /// Inject required body defaults and Codex request metadata before forwarding.
@@ -377,7 +385,8 @@ pub async fn responses_handler(
     })?;
 
     let session_id = state.resolve_session_id(requested_session_id(&headers));
-    let context = CodexRequestContext::new(session_id, state.installation_id);
+    let turn_id = state.resolve_turn_id(requested_turn_id(&headers));
+    let context = CodexRequestContext::new(session_id, turn_id, state.installation_id);
     let prepared = prepare_responses_body(body, &context).map_err(|err| {
         tracing::error!("Failed to parse request body: {err}");
         ApiError::new(

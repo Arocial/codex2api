@@ -19,6 +19,8 @@ pub struct AppState {
     /// Process-local mappings keep arbitrary client session IDs from reaching
     /// the Codex backend while preserving session continuity.
     session_ids: Mutex<HashMap<String, Uuid>>,
+    /// Turn IDs use a separate namespace from session IDs.
+    turn_ids: Mutex<HashMap<String, Uuid>>,
     /// Clients must present `Authorization: Bearer <api_key>` on protected
     /// routes. Generated at startup if not provided via env/CLI.
     pub api_key: String,
@@ -42,23 +44,29 @@ impl AppState {
             models_client_version,
             installation_id,
             session_ids: Mutex::new(HashMap::new()),
+            turn_ids: Mutex::new(HashMap::new()),
             api_key,
         })
     }
 
     pub fn resolve_session_id(&self, client_session_id: Option<String>) -> Uuid {
-        let Some(client_session_id) = client_session_id else {
-            return Uuid::now_v7();
-        };
-
-        let mut session_ids = self
-            .session_ids
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        *session_ids
-            .entry(client_session_id)
-            .or_insert_with(Uuid::now_v7)
+        resolve_client_id(&self.session_ids, client_session_id)
     }
+
+    pub fn resolve_turn_id(&self, client_turn_id: Option<String>) -> Uuid {
+        resolve_client_id(&self.turn_ids, client_turn_id)
+    }
+}
+
+fn resolve_client_id(ids: &Mutex<HashMap<String, Uuid>>, client_id: Option<String>) -> Uuid {
+    let Some(client_id) = client_id else {
+        return Uuid::now_v7();
+    };
+
+    let mut ids = ids
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    *ids.entry(client_id).or_insert_with(Uuid::now_v7)
 }
 
 fn load_or_create_installation_id(codex_home: &PathBuf) -> anyhow::Result<Uuid> {

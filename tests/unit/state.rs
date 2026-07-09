@@ -43,6 +43,29 @@ fn client_session_ids_map_to_stable_local_uuid_v7_ids() {
 }
 
 #[test]
+fn client_turn_ids_map_to_stable_local_uuid_v7_ids() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = AppState::new(
+        dir.path().to_path_buf(),
+        "https://example.com".into(),
+        "0.142.5".into(),
+        "key".into(),
+    )
+    .unwrap();
+
+    let first = state.resolve_turn_id(Some("arbitrary-client-turn".into()));
+    let repeated = state.resolve_turn_id(Some("arbitrary-client-turn".into()));
+    let different = state.resolve_turn_id(Some("another-client-turn".into()));
+    let same_text_session = state.resolve_session_id(Some("arbitrary-client-turn".into()));
+
+    assert_eq!(first.get_version_num(), 7);
+    assert_eq!(first, repeated);
+    assert_ne!(first, different);
+    assert_ne!(first, same_text_session);
+    assert_eq!(different.get_version_num(), 7);
+}
+
+#[test]
 fn missing_client_session_id_gets_a_fresh_uuid_v7() {
     let dir = tempfile::tempdir().unwrap();
     let state = AppState::new(
