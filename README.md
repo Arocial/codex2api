@@ -49,6 +49,30 @@ Clients must send this value as `Authorization: Bearer <key>` on `/v1/*`
 requests. If the variable is omitted, a random ephemeral key is printed at
 startup; setting the variable is recommended so the key remains stable.
 
+### 3. Test the proxy
+
+With the proxy running, send a streaming Responses API request:
+
+```sh
+curl -N http://127.0.0.1:3402/v1/responses \
+  -H 'Authorization: Bearer replace-with-a-long-random-secret' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "model": "gpt-5.5",
+    "input": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "input_text",
+            "text": "Say hello in one short sentence."
+          }
+        ]
+      }
+    ]
+  }'
+```
+
 ### Options
 
 ```
@@ -102,6 +126,11 @@ Two fields are managed automatically:
 ### GET /v1/models
 
 Proxies to the Codex models endpoint and returns the available models.
+
+```sh
+curl http://127.0.0.1:3402/v1/models \
+  -H 'Authorization: Bearer replace-with-a-long-random-secret'
+```
 
 ## Logging
 
