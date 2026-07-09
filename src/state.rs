@@ -1,4 +1,4 @@
-use codex_login::{AuthCredentialsStoreMode, AuthManager, default_client::build_reqwest_client};
+use codex_login::{default_client::build_reqwest_client, AuthCredentialsStoreMode, AuthManager};
 use std::path::PathBuf;
 use std::sync::Arc;
 

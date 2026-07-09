@@ -1,9 +1,11 @@
 use axum::body::Body;
+use axum::extract::rejection::BytesRejection;
 use axum::extract::{Request, State};
 use axum::http::StatusCode;
 use axum::middleware::Next;
-use axum::response::Response;
+use axum::response::{IntoResponse, Response};
 use bytes::Bytes;
+use serde_json::json;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -14,7 +16,51 @@ use crate::state::AppState;
 /// timeout — connect-time issues surface as reqwest errors regardless.
 const SHORT_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// Large enough for long prompts and tool definitions while still bounding
+/// memory use, since request bodies are parsed and serialized in memory.
+pub const MAX_REQUEST_BODY_SIZE: usize = 32 * 1024 * 1024;
+
 pub const DEFAULT_BACKEND_BASE_URL: &str = "https://chatgpt.com/backend-api/codex";
+
+pub(crate) struct ApiError {
+    status: StatusCode,
+    message: String,
+    error_type: &'static str,
+    code: &'static str,
+}
+
+impl ApiError {
+    fn new(
+        status: StatusCode,
+        message: impl Into<String>,
+        error_type: &'static str,
+        code: &'static str,
+    ) -> Self {
+        Self {
+            status,
+            message: message.into(),
+            error_type,
+            code,
+        }
+    }
+}
+
+impl IntoResponse for ApiError {
+    fn into_response(self) -> Response {
+        (
+            self.status,
+            axum::Json(json!({
+                "error": {
+                    "message": self.message,
+                    "type": self.error_type,
+                    "param": null,
+                    "code": self.code,
+                }
+            })),
+        )
+            .into_response()
+    }
+}
 
 enum Method {
     Get,
@@ -118,7 +164,7 @@ fn is_hop_by_hop(name: &str) -> bool {
 /// Stream a backend response back to the client. Upstream status and body —
 /// including error responses — are forwarded verbatim so clients see real
 /// backend error messages instead of an opaque proxy status.
-fn stream_response(resp: reqwest::Response) -> Result<Response<Body>, StatusCode> {
+fn stream_response(resp: reqwest::Response) -> Result<Response<Body>, ApiError> {
     let status = resp.status();
     let mut builder = Response::builder().status(status.as_u16());
 
@@ -130,9 +176,15 @@ fn stream_response(resp: reqwest::Response) -> Result<Response<Body>, StatusCode
     }
 
     let stream = resp.bytes_stream();
-    builder
-        .body(Body::from_stream(stream))
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+    builder.body(Body::from_stream(stream)).map_err(|err| {
+        tracing::error!("Failed to build backend response: {err}");
+        ApiError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "The proxy failed to construct the backend response.",
+            "proxy_error",
+            "response_build_failed",
+        )
+    })
 }
 
 /// Middleware that requires `Authorization: Bearer <api_key>` on protected
@@ -141,7 +193,7 @@ pub async fn require_bearer(
     State(state): State<Arc<AppState>>,
     req: Request,
     next: Next,
-) -> Result<Response, StatusCode> {
+) -> Result<Response, ApiError> {
     let provided = req
         .headers()
         .get(axum::http::header::AUTHORIZATION)
@@ -149,18 +201,50 @@ pub async fn require_bearer(
         .and_then(|h| h.strip_prefix("Bearer "));
     match provided {
         Some(p) if p == state.api_key => Ok(next.run(req).await),
-        _ => Err(StatusCode::UNAUTHORIZED),
+        _ => Err(ApiError::new(
+            StatusCode::UNAUTHORIZED,
+            "Missing or invalid API key.",
+            "authentication_error",
+            "invalid_api_key",
+        )),
     }
 }
 
 /// POST /v1/responses — proxy to the Codex backend responses endpoint.
 pub async fn responses_handler(
     State(state): State<Arc<AppState>>,
-    body: Bytes,
-) -> Result<Response<Body>, StatusCode> {
+    body: Result<Bytes, BytesRejection>,
+) -> Result<Response<Body>, ApiError> {
+    let body = body.map_err(|err| {
+        let status = err.status();
+        if status == StatusCode::PAYLOAD_TOO_LARGE {
+            ApiError::new(
+                status,
+                format!(
+                    "Request body exceeds the {} MiB limit.",
+                    MAX_REQUEST_BODY_SIZE / 1024 / 1024
+                ),
+                "invalid_request_error",
+                "request_too_large",
+            )
+        } else {
+            ApiError::new(
+                status,
+                "Failed to read the request body.",
+                "invalid_request_error",
+                "invalid_request_body",
+            )
+        }
+    })?;
+
     let prepared = apply_body_defaults(body).map_err(|err| {
         tracing::error!("Failed to parse request body: {err}");
-        StatusCode::BAD_REQUEST
+        ApiError::new(
+            StatusCode::BAD_REQUEST,
+            format!("Invalid JSON request body: {err}"),
+            "invalid_request_error",
+            "invalid_json",
+        )
     })?;
 
     let url = format!("{}/responses", state.backend_base_url);
@@ -168,7 +252,12 @@ pub async fn responses_handler(
         .await
         .map_err(|err| {
             tracing::error!("Backend request failed: {err}");
-            StatusCode::BAD_GATEWAY
+            ApiError::new(
+                StatusCode::BAD_GATEWAY,
+                "The proxy could not reach the Codex backend.",
+                "proxy_error",
+                "backend_unavailable",
+            )
         })?;
 
     stream_response(resp)
@@ -177,13 +266,18 @@ pub async fn responses_handler(
 /// GET /v1/models — proxy to the Codex backend models endpoint.
 pub async fn models_handler(
     State(state): State<Arc<AppState>>,
-) -> Result<Response<Body>, StatusCode> {
+) -> Result<Response<Body>, ApiError> {
     let url = format!("{}/models", state.backend_base_url);
     let resp = do_request_with_retry(&state, Method::Get, &url, None)
         .await
         .map_err(|err| {
             tracing::error!("Models request failed: {err}");
-            StatusCode::BAD_GATEWAY
+            ApiError::new(
+                StatusCode::BAD_GATEWAY,
+                "The proxy could not reach the Codex backend.",
+                "proxy_error",
+                "backend_unavailable",
+            )
         })?;
 
     stream_response(resp)
@@ -192,7 +286,7 @@ pub async fn models_handler(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::{Value, json};
+    use serde_json::{json, Value};
 
     fn defaults_as_json(input: &str) -> Value {
         let out = apply_body_defaults(Bytes::from(input.to_string())).expect("ok");
@@ -251,5 +345,27 @@ mod tests {
         for h in ["content-type", "x-request-id", "cache-control"] {
             assert!(!is_hop_by_hop(h), "{h} should NOT be hop-by-hop");
         }
+    }
+
+    #[test]
+    fn api_error_uses_openai_error_shape() {
+        let err = ApiError::new(
+            StatusCode::UNAUTHORIZED,
+            "Missing or invalid API key.",
+            "authentication_error",
+            "invalid_api_key",
+        );
+        let value = json!({
+            "error": {
+                "message": err.message,
+                "type": err.error_type,
+                "param": null,
+                "code": err.code,
+            }
+        });
+
+        assert_eq!(value["error"]["type"], "authentication_error");
+        assert_eq!(value["error"]["code"], "invalid_api_key");
+        assert!(value["error"]["param"].is_null());
     }
 }

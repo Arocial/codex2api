@@ -11,7 +11,8 @@ cargo build
 cargo build --release
 ```
 
-`codex-login` is a path dependency at `../codex/codex-rs/login`. The Codex source tree must be present at that relative path.
+`codex-login` is fetched from the OpenAI Codex Git repository and pinned by
+`Cargo.lock`.
 
 ## Source layout
 
@@ -27,6 +28,10 @@ cargo build --release
 - **`store` default.** `store: false` is injected only when the client omits the field. An explicit client value must not be overwritten.
 - **Auth headers.** Every backend request must carry `Authorization: Bearer <token>` and, when available, `ChatGPT-Account-ID`. The `reqwest::Client` from `build_reqwest_client()` already sets `User-Agent` and `originator`; do not replace it with a plain `reqwest::Client::new()`.
 - **401 retry.** On a 401 response from the backend, call `auth_manager.refresh_token().await` once and retry. Do not retry more than once.
+- **Request limit.** Responses request bodies are limited to 32 MiB because
+  they are parsed and serialized in memory.
+- **Error format.** Proxy-generated API errors use the OpenAI-style
+  `{ "error": { ... } }` JSON shape.
 
 ## Adding a new backend endpoint
 

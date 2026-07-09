@@ -12,9 +12,8 @@ Authentication is shared with the Codex CLI: the same `~/.codex/auth.json` is us
 
 ## Requirements
 
-- Rust toolchain (1.80+)
+- A current stable Rust toolchain
 - A ChatGPT / OpenAI account with Codex access
-- The [Codex CLI](https://github.com/openai/codex) source checked out alongside this repo at `../codex`
 
 ## Build
 
@@ -37,10 +36,13 @@ This opens a browser window for the ChatGPT PKCE OAuth flow and writes credentia
 ### 2. Start the proxy
 
 ```sh
-codex2api
+CODEX2API_API_KEY='replace-with-a-long-random-secret' codex2api
 ```
 
 The server listens on `127.0.0.1:3402` by default.
+Clients must send this value as `Authorization: Bearer <key>` on `/v1/*`
+requests. If the variable is omitted, a random ephemeral key is printed at
+startup; setting the variable is recommended so the key remains stable.
 
 ### Options
 
@@ -55,16 +57,32 @@ Options:
       --codex-home <CODEX_HOME>              Codex home directory [default: ~/.codex]
       --backend-base-url <BACKEND_BASE_URL>  Backend base URL (env: CODEX2API_BACKEND_BASE_URL)
                                              [default: https://chatgpt.com/backend-api/codex]
+      --api-key <API_KEY>                    Client API key (env: CODEX2API_API_KEY)
   -h, --help                                 Print help
 ```
 
-`CODEX_HOME` and `CODEX2API_BACKEND_BASE_URL` environment variables are also respected. Override `--backend-base-url` for FedRAMP, enterprise, or staging endpoints.
+`CODEX_HOME`, `CODEX2API_BACKEND_BASE_URL`, and `CODEX2API_API_KEY` environment
+variables are respected. Override `--backend-base-url` for FedRAMP, enterprise,
+or staging endpoints.
+
+### Docker Compose
+
+Compose requires a stable API key. Put it in a local `.env` file:
+
+```dotenv
+CODEX2API_API_KEY=replace-with-a-long-random-secret
+```
+
+Then start the service with `docker compose up -d`. The `.env` file is ignored
+by Git.
 
 ## API
 
 ### POST /v1/responses
 
 Proxies to the Codex responses endpoint. Request and response formats follow the [OpenAI Responses API](https://platform.openai.com/docs/api-reference/responses) spec.
+
+The maximum request body size is 32 MiB.
 
 Two fields are managed automatically:
 
@@ -100,7 +118,8 @@ src/
 - Only SSE streaming responses are supported. Non-streaming mode is not implemented.
 - The HTTP client reuses the same User-Agent and `originator` headers as the Codex CLI (`codex_cli_rs`).
 - Token refresh is handled automatically. A 401 response triggers one refresh-and-retry cycle.
-- `codex-login` is referenced as a path dependency from the Codex source tree (`../codex/codex-rs/login`). The Codex source must be present at that relative path.
+- `codex-login` is fetched from the OpenAI Codex Git repository and pinned by `Cargo.lock`.
+- Proxy-generated errors use the OpenAI-style `{ "error": { ... } }` JSON shape.
 
 ## Traffic fingerprint vs. the Codex CLI
 

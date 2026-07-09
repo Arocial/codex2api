@@ -1,11 +1,12 @@
 mod proxy;
 mod state;
 
-use axum::Router;
+use axum::extract::DefaultBodyLimit;
 use axum::middleware;
 use axum::routing::{get, post};
+use axum::Router;
 use clap::{Parser, Subcommand};
-use codex_login::{AuthCredentialsStoreMode, CLIENT_ID, ServerOptions, run_login_server};
+use codex_login::{run_login_server, AuthCredentialsStoreMode, ServerOptions, CLIENT_ID};
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -13,7 +14,10 @@ use std::sync::Arc;
 use state::AppState;
 
 #[derive(Parser)]
-#[command(name = "codex2api", about = "Proxy Codex subscription as a standard OpenAI Responses API")]
+#[command(
+    name = "codex2api",
+    about = "Proxy Codex subscription as a standard OpenAI Responses API"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Command>,
@@ -47,8 +51,8 @@ enum Command {
 /// 32-char alphanumeric suffix, ~190 bits of entropy. Prefixed `sk-` to match
 /// the convention OpenAI-compatible clients expect.
 fn generate_api_key() -> String {
-    use rand::Rng;
     use rand::distr::Alphanumeric;
+    use rand::Rng;
     let suffix: String = rand::rng()
         .sample_iter(Alphanumeric)
         .take(32)
@@ -140,6 +144,7 @@ async fn run_server(
             proxy::require_bearer,
         ))
         .route("/healthz", get(|| async { "ok" }))
+        .layer(DefaultBodyLimit::max(proxy::MAX_REQUEST_BODY_SIZE))
         .with_state(state);
 
     tracing::info!("Listening on {listen}");
