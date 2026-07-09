@@ -103,10 +103,28 @@ CODEX2API_API_KEY=replace-with-a-long-random-secret
 ```
 
 Then start the service with
-`docker compose -f docker/docker-compose.yml up -d`. The `.env` file is ignored
-by Git. The runtime image does not bundle the Codex CLI; authenticate on the
-host and copy `auth.json` into the container volume when it is not already
-populated.
+`docker compose -f docker/docker-compose.yml up`. The image includes the Codex
+CLI. On the first start, the entrypoint detects that the persistent
+`codex-home` volume has no `auth.json`, prints a login command, and waits. Run
+that command in another terminal:
+
+```sh
+docker compose -f docker/docker-compose.yml exec codex2api \
+  codex -c 'cli_auth_credentials_store="file"' login --device-auth
+```
+
+Open the displayed URL and enter the device code. Once authentication
+completes, the waiting entrypoint detects the saved credentials and starts the
+proxy automatically. Later starts reuse the saved credentials.
+
+After the initial login, the service can be started in the background:
+
+```sh
+docker compose -f docker/docker-compose.yml up -d
+```
+
+The `.env` file is ignored by Git. To force a new login, remove
+`/root/.codex/auth.json` from the `codex-home` volume and restart the service.
 
 ## API
 

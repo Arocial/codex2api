@@ -13,6 +13,11 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     cargo build --release --locked && \
     cp target/release/codex2api /usr/local/bin/codex2api
 
+FROM node:22-bookworm-slim AS codex-cli
+
+RUN npm install --global --omit=dev @openai/codex@latest && \
+    npm cache clean --force
+
 FROM debian:bookworm-slim AS runtime
 
 RUN apt-get update && \
@@ -20,9 +25,15 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /usr/local/bin/codex2api /usr/local/bin/codex2api
+COPY --from=codex-cli /usr/local/bin/node /usr/local/bin/node
+COPY --from=codex-cli /usr/local/lib/node_modules /usr/local/lib/node_modules
+COPY --chmod=755 docker/entrypoint.sh /usr/local/bin/entrypoint.sh
+
+RUN ln -s ../lib/node_modules/@openai/codex/bin/codex.js /usr/local/bin/codex && \
+    codex --version
 
 ENV CODEX_HOME=/root/.codex
 EXPOSE 3402
 
-ENTRYPOINT ["/usr/local/bin/codex2api"]
-CMD ["--listen", "0.0.0.0:3402"]
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["codex2api", "--listen", "0.0.0.0:3402"]
