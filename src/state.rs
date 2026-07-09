@@ -1,8 +1,9 @@
 use codex_auth_compat::{build_reqwest_client, AuthManager};
+use std::collections::HashMap;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
 pub struct AppState {
@@ -15,6 +16,9 @@ pub struct AppState {
     pub models_client_version: String,
     /// Stable identity shared by all requests from this proxy installation.
     pub installation_id: Uuid,
+    /// Process-local mappings keep arbitrary client session IDs from reaching
+    /// the Codex backend while preserving session continuity.
+    session_ids: Mutex<HashMap<String, Uuid>>,
     /// Clients must present `Authorization: Bearer <api_key>` on protected
     /// routes. Generated at startup if not provided via env/CLI.
     pub api_key: String,
@@ -37,8 +41,23 @@ impl AppState {
             backend_base_url,
             models_client_version,
             installation_id,
+            session_ids: Mutex::new(HashMap::new()),
             api_key,
         })
+    }
+
+    pub fn resolve_session_id(&self, client_session_id: Option<String>) -> Uuid {
+        let Some(client_session_id) = client_session_id else {
+            return Uuid::now_v7();
+        };
+
+        let mut session_ids = self
+            .session_ids
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        *session_ids
+            .entry(client_session_id)
+            .or_insert_with(Uuid::now_v7)
     }
 }
 

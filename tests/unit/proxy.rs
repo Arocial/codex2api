@@ -2,11 +2,11 @@ use super::*;
 use axum::http::HeaderValue;
 use serde_json::{json, Value};
 
+const CONTEXT_SESSION_ID: &str = "01890f3e-7b2c-7a1d-8e4f-123456789abc";
+
 fn test_context() -> CodexRequestContext {
-    let mut headers = HeaderMap::new();
-    headers.insert("x-session-id", HeaderValue::from_static("session-123"));
     CodexRequestContext::new(
-        &headers,
+        Uuid::parse_str(CONTEXT_SESSION_ID).unwrap(),
         Uuid::parse_str("f691edef-06a3-477d-9a17-7ae9ea4a991a").unwrap(),
     )
 }
@@ -25,7 +25,7 @@ fn store_defaults_to_false_when_absent() {
     assert_eq!(v["tool_choice"], json!("auto"));
     assert_eq!(v["parallel_tool_calls"], json!(false));
     assert_eq!(v["include"], json!(["reasoning.encrypted_content"]));
-    assert_eq!(v["prompt_cache_key"], json!("session-123"));
+    assert_eq!(v["prompt_cache_key"], json!(CONTEXT_SESSION_ID));
 }
 
 #[test]
@@ -61,14 +61,12 @@ fn invalid_json_is_rejected() {
 }
 
 #[test]
-fn session_id_precedence_and_generation() {
+fn session_id_precedence_and_absence() {
     let mut headers = HeaderMap::new();
     headers.insert("session-id", HeaderValue::from_static("fallback"));
     headers.insert("x-session-id", HeaderValue::from_static("preferred"));
     assert_eq!(requested_session_id(&headers).as_deref(), Some("preferred"));
-
-    let generated = CodexRequestContext::new(&HeaderMap::new(), Uuid::nil());
-    assert!(Uuid::parse_str(&generated.session_id).is_ok());
+    assert_eq!(requested_session_id(&HeaderMap::new()), None);
 }
 
 #[test]
@@ -83,11 +81,11 @@ fn codex_metadata_is_coherent_and_custom_metadata_survives() {
     );
     let metadata = &v["client_metadata"];
     assert_eq!(metadata["custom"], "keep");
-    assert_eq!(metadata["session_id"], "session-123");
-    assert_eq!(metadata["thread_id"], "session-123");
+    assert_eq!(metadata["session_id"], CONTEXT_SESSION_ID);
+    assert_eq!(metadata["thread_id"], CONTEXT_SESSION_ID);
     assert_eq!(
         metadata["x-codex-window-id"],
-        Value::String("session-123:0".into())
+        Value::String(format!("{CONTEXT_SESSION_ID}:0"))
     );
     assert_eq!(
         metadata["x-codex-installation-id"],
@@ -96,9 +94,12 @@ fn codex_metadata_is_coherent_and_custom_metadata_survives() {
 
     let turn_metadata: Value =
         serde_json::from_str(metadata["x-codex-turn-metadata"].as_str().unwrap()).unwrap();
-    assert_eq!(turn_metadata["session_id"], "session-123");
-    assert_eq!(turn_metadata["thread_id"], "session-123");
-    assert_eq!(turn_metadata["window_id"], "session-123:0");
+    assert_eq!(turn_metadata["session_id"], CONTEXT_SESSION_ID);
+    assert_eq!(turn_metadata["thread_id"], CONTEXT_SESSION_ID);
+    assert_eq!(
+        turn_metadata["window_id"],
+        format!("{CONTEXT_SESSION_ID}:0")
+    );
     assert_eq!(turn_metadata["turn_id"], metadata["turn_id"]);
 }
 
@@ -114,7 +115,10 @@ fn non_object_client_metadata_is_rejected() {
 #[test]
 fn null_client_metadata_is_populated() {
     let v = defaults_as_json(r#"{"client_metadata":null}"#);
-    assert_eq!(v["client_metadata"]["session_id"], "session-123");
+    assert_eq!(
+        v["client_metadata"]["session_id"],
+        Value::String(CONTEXT_SESSION_ID.into())
+    );
 }
 
 #[test]
@@ -140,10 +144,13 @@ fn codex_headers_match_request_context() {
     assert_eq!(headers["version"], "0.142.5");
     assert_eq!(headers["originator"], "codex-tui");
     assert_eq!(headers["accept"], "text/event-stream");
-    assert_eq!(headers["session-id"], "session-123");
-    assert_eq!(headers["thread-id"], "session-123");
-    assert_eq!(headers["x-client-request-id"], "session-123");
-    assert_eq!(headers["x-codex-window-id"], "session-123:0");
+    assert_eq!(headers["session-id"], CONTEXT_SESSION_ID);
+    assert_eq!(headers["thread-id"], CONTEXT_SESSION_ID);
+    assert_eq!(headers["x-client-request-id"], CONTEXT_SESSION_ID);
+    assert_eq!(
+        headers["x-codex-window-id"],
+        format!("{CONTEXT_SESSION_ID}:0")
+    );
     assert_eq!(headers["x-codex-turn-metadata"], ctx.turn_metadata.as_str());
     assert!(headers["user-agent"]
         .to_str()

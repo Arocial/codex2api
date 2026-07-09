@@ -91,9 +91,8 @@ struct CodexRequestContext {
 }
 
 impl CodexRequestContext {
-    fn new(headers: &HeaderMap, installation_id: Uuid) -> Self {
-        let session_id =
-            requested_session_id(headers).unwrap_or_else(|| Uuid::now_v7().to_string());
+    fn new(session_id: Uuid, installation_id: Uuid) -> Self {
+        let session_id = session_id.to_string();
         let turn_id = Uuid::now_v7().to_string();
         let window_id = format!("{session_id}:0");
         let turn_started_at_unix_ms = SystemTime::now()
@@ -377,7 +376,8 @@ pub async fn responses_handler(
         }
     })?;
 
-    let context = CodexRequestContext::new(&headers, state.installation_id);
+    let session_id = state.resolve_session_id(requested_session_id(&headers));
+    let context = CodexRequestContext::new(session_id, state.installation_id);
     let prepared = prepare_responses_body(body, &context).map_err(|err| {
         tracing::error!("Failed to parse request body: {err}");
         ApiError::new(
