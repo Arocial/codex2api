@@ -1,12 +1,14 @@
 services:
   codex2api:
-    build: .
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
     image: ghcr.io/arocial/codex2api:latest
     container_name: codex2api
     ports:
       - "127.0.0.1:3402:3402"
     environment:
-      CODEX2API_API_KEY: "${CODEX2API_API_KEY:?set CODEX2API_API_KEY in the environment or .env file}"
+      CODEX2API_API_KEY: "${CODEX2API_API_KEY:-}"
     volumes:
       - codex-home:/root/.codex
     restart: unless-stopped

@@ -78,7 +78,8 @@ Compose requires a stable API key. Put it in a local `.env` file:
 CODEX2API_API_KEY=replace-with-a-long-random-secret
 ```
 
-Then start the service with `docker compose up -d`. The `.env` file is ignored
+Then start the service with
+`docker compose -f docker/docker-compose.yml up -d`. The `.env` file is ignored
 by Git. The runtime image does not bundle the Codex CLI; authenticate on the
 host and copy `auth.json` into the container volume when it is not already
 populated.
