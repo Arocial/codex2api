@@ -34,6 +34,14 @@ struct Cli {
     #[arg(long, env = "CODEX2API_BACKEND_BASE_URL", default_value = proxy::DEFAULT_BACKEND_BASE_URL)]
     backend_base_url: String,
 
+    /// Codex CLI version sent to the backend models endpoint.
+    #[arg(
+        long,
+        env = "CODEX2API_CLIENT_VERSION",
+        default_value = proxy::DEFAULT_MODELS_CLIENT_VERSION
+    )]
+    client_version: String,
+
     /// API key required from clients in the `Authorization: Bearer ...` header
     /// on `/v1/*` routes. If unset, a random key is generated at startup and
     /// printed to the log.
@@ -86,7 +94,14 @@ async fn main() -> anyhow::Result<()> {
         None => {
             // Treat an empty env var the same as unset.
             let api_key = cli.api_key.filter(|s| !s.is_empty());
-            run_server(codex_home, cli.listen, cli.backend_base_url, api_key).await?
+            run_server(
+                codex_home,
+                cli.listen,
+                cli.backend_base_url,
+                cli.client_version,
+                api_key,
+            )
+            .await?
         }
     }
 
@@ -111,6 +126,7 @@ async fn run_server(
     codex_home: PathBuf,
     listen: SocketAddr,
     backend_base_url: String,
+    client_version: String,
     api_key: Option<String>,
 ) -> anyhow::Result<()> {
     // Trim trailing slashes so callers can pass either form.
@@ -131,7 +147,7 @@ async fn run_server(
             k
         }
     };
-    let state = Arc::new(AppState::new(codex_home, base, api_key));
+    let state = Arc::new(AppState::new(codex_home, base, client_version, api_key));
 
     // `route_layer` only applies to routes registered *before* it, so
     // `/healthz` (added after) stays publicly reachable.

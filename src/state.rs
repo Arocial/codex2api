@@ -8,13 +8,20 @@ pub struct AppState {
     pub http_client: reqwest::Client,
     /// Backend base URL; `/responses` and `/models` are appended at call time.
     pub backend_base_url: String,
+    /// Codex CLI protocol version sent to the backend models endpoint.
+    pub models_client_version: String,
     /// Clients must present `Authorization: Bearer <api_key>` on protected
     /// routes. Generated at startup if not provided via env/CLI.
     pub api_key: String,
 }
 
 impl AppState {
-    pub fn new(codex_home: PathBuf, backend_base_url: String, api_key: String) -> Self {
+    pub fn new(
+        codex_home: PathBuf,
+        backend_base_url: String,
+        models_client_version: String,
+        api_key: String,
+    ) -> Self {
         let http_client =
             build_reqwest_client().expect("failed to build Codex-compatible HTTP client");
         let auth_manager = Arc::new(AuthManager::new(codex_home, http_client.clone()));
@@ -22,6 +29,7 @@ impl AppState {
             auth_manager,
             http_client,
             backend_base_url,
+            models_client_version,
             api_key,
         }
     }

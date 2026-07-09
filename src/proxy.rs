@@ -22,6 +22,16 @@ pub const MAX_REQUEST_BODY_SIZE: usize = 32 * 1024 * 1024;
 
 pub const DEFAULT_BACKEND_BASE_URL: &str = "https://chatgpt.com/backend-api/codex";
 
+/// Codex protocol version advertised to the models endpoint. This must track a
+/// Codex CLI version whose model schema this proxy can pass through.
+pub const DEFAULT_MODELS_CLIENT_VERSION: &str = "0.142.0";
+
+/// The Codex models endpoint requires a client version. Add it here so callers
+/// do not need to know about the backend-specific query parameter.
+fn models_url(backend_base_url: &str, client_version: &str) -> String {
+    format!("{backend_base_url}/models?client_version={client_version}")
+}
+
 pub(crate) struct ApiError {
     status: StatusCode,
     message: String,
@@ -268,7 +278,7 @@ pub async fn responses_handler(
 pub async fn models_handler(
     State(state): State<Arc<AppState>>,
 ) -> Result<Response<Body>, ApiError> {
-    let url = format!("{}/models", state.backend_base_url);
+    let url = models_url(&state.backend_base_url, &state.models_client_version);
     let resp = do_request_with_retry(&state, Method::Get, &url, None)
         .await
         .map_err(|err| {
@@ -330,6 +340,14 @@ mod tests {
     fn invalid_json_is_rejected() {
         assert!(apply_body_defaults(Bytes::from_static(b"not json")).is_err());
         assert!(apply_body_defaults(Bytes::from_static(b"{")).is_err());
+    }
+
+    #[test]
+    fn models_url_includes_required_client_version() {
+        assert_eq!(
+            models_url("https://example.com/backend-api/codex", "1.2.3"),
+            "https://example.com/backend-api/codex/models?client_version=1.2.3"
+        );
     }
 
     #[test]

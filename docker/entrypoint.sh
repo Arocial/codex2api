@@ -1,6 +1,12 @@
 #!/bin/sh
 set -eu
 
+if [ -z "${CODEX2API_CLIENT_VERSION:-}" ]; then
+    codex_version="$(codex --version)"
+    CODEX2API_CLIENT_VERSION="${codex_version##* }"
+    export CODEX2API_CLIENT_VERSION
+fi
+
 auth_file="${CODEX_HOME:-/root/.codex}/auth.json"
 if [ ! -s "$auth_file" ]; then
     mkdir -p "$(dirname "$auth_file")"

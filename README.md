@@ -86,13 +86,17 @@ Options:
       --codex-home <CODEX_HOME>              Codex home directory [default: ~/.codex]
       --backend-base-url <BACKEND_BASE_URL>  Backend base URL (env: CODEX2API_BACKEND_BASE_URL)
                                              [default: https://chatgpt.com/backend-api/codex]
+      --client-version <CLIENT_VERSION>      Codex CLI version sent to the models endpoint
+                                             (env: CODEX2API_CLIENT_VERSION)
       --api-key <API_KEY>                    Client API key (env: CODEX2API_API_KEY)
   -h, --help                                 Print help
 ```
 
-`CODEX_HOME`, `CODEX2API_BACKEND_BASE_URL`, and `CODEX2API_API_KEY` environment
-variables are respected. Override `--backend-base-url` for FedRAMP, enterprise,
-or staging endpoints.
+`CODEX_HOME`, `CODEX2API_BACKEND_BASE_URL`, `CODEX2API_CLIENT_VERSION`, and
+`CODEX2API_API_KEY` environment variables are respected. Override
+`--backend-base-url` for FedRAMP, enterprise, or staging endpoints. The Docker
+entrypoint sets `CODEX2API_CLIENT_VERSION` from `codex --version` unless it is
+already set.
 
 ### Docker Compose
 
@@ -143,7 +147,8 @@ Two fields are managed automatically:
 
 ### GET /v1/models
 
-Proxies to the Codex models endpoint and returns the available models.
+Proxies to the Codex models endpoint and returns the available models. The
+required backend `client_version` query parameter is added automatically.
 
 ```sh
 curl http://127.0.0.1:3402/v1/models \

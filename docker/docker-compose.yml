@@ -9,6 +9,7 @@ services:
       - "127.0.0.1:3402:3402"
     environment:
       CODEX2API_API_KEY: "${CODEX2API_API_KEY:-}"
+      CODEX2API_CLIENT_VERSION: "${CODEX2API_CLIENT_VERSION:-}"
     volumes:
       - codex-home:/root/.codex
     restart: unless-stopped
