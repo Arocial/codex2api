@@ -202,6 +202,22 @@ curl http://127.0.0.1:3402/v1/models \
   -H 'Authorization: Bearer replace-with-a-long-random-secret'
 ```
 
+For a friendlier model list, use the helper script. It defaults to the Docker
+Compose service name `http://codex2api:3402` and reads the API key from
+`CODEX2API_API_KEY`:
+
+```sh
+CODEX2API_API_KEY='replace-with-a-long-random-secret' scripts/list-models.py
+```
+
+Override the endpoint when running outside the Compose network:
+
+```sh
+scripts/list-models.py \
+  --base-url http://127.0.0.1:3402 \
+  --api-key replace-with-a-long-random-secret
+```
+
 ## Logging
 
 Log level is controlled by the `RUST_LOG` environment variable:
