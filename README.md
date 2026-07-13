@@ -127,6 +127,18 @@ After the initial login, the service can be started in the background:
 docker compose -f docker/docker-compose.yml up -d
 ```
 
+To rebuild while fetching the latest Codex CLI instead of reusing its cached
+image layer, change the Codex install cache key:
+
+```bash
+docker compose -f docker/docker-compose.yml build \
+  --build-arg CODEX_INSTALL_CACHE_BUST="$(date +%s)"
+```
+
+GitHub Actions sets this key from the workflow run ID and attempt, so every
+Actions build checks npm for the latest Codex CLI while retaining cache for the
+other image layers.
+
 The `.env` file is ignored by Git. To force a new login, remove
 `/root/.codex/auth.json` from the `codex-home` volume and restart the service.
 

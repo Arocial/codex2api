@@ -3,6 +3,8 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
+      args:
+        CODEX_INSTALL_CACHE_BUST: "${CODEX_INSTALL_CACHE_BUST:-default}"
     image: ghcr.io/arocial/codex2api:latest
     container_name: codex2api
     ports:

@@ -15,7 +15,10 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 
 FROM node:22-bookworm-slim AS codex-cli
 
-RUN npm install --global --omit=dev @openai/codex@latest && \
+ARG CODEX_INSTALL_CACHE_BUST=default
+
+RUN echo "Codex install cache key: ${CODEX_INSTALL_CACHE_BUST}" && \
+    npm install --global --omit=dev @openai/codex@latest && \
     npm cache clean --force
 
 FROM debian:bookworm-slim AS runtime
