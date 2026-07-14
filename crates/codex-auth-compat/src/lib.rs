@@ -229,6 +229,14 @@ fn save_document(path: &Path, document: &Value) -> std::io::Result<()> {
 }
 
 pub fn build_reqwest_client() -> Result<reqwest::Client, reqwest::Error> {
+    reqwest_client_builder().build()
+}
+
+pub fn build_reqwest_client_with_cookie_store() -> Result<reqwest::Client, reqwest::Error> {
+    reqwest_client_builder().cookie_store(true).build()
+}
+
+fn reqwest_client_builder() -> reqwest::ClientBuilder {
     let headers = codex_default_headers();
     let user_agent = codex_user_agent();
     let mut builder = reqwest::Client::builder()
@@ -243,7 +251,7 @@ pub fn build_reqwest_client() -> Result<reqwest::Client, reqwest::Error> {
             }
         }
     }
-    builder.build()
+    builder
 }
 
 pub fn codex_default_headers() -> HeaderMap {

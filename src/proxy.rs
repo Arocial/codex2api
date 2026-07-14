@@ -307,15 +307,20 @@ fn is_hop_by_hop(name: &str) -> bool {
     )
 }
 
+fn should_forward_response_header(name: &str) -> bool {
+    !is_hop_by_hop(name) && !name.eq_ignore_ascii_case("set-cookie")
+}
+
 /// Stream a backend response back to the client. Upstream status and body —
 /// including error responses — are forwarded verbatim so clients see real
-/// backend error messages instead of an opaque proxy status.
+/// backend error messages instead of an opaque proxy status. Cookies remain in
+/// the proxy's shared cookie store and are not exposed to downstream clients.
 fn stream_response(resp: reqwest::Response) -> Result<Response<Body>, ApiError> {
     let status = resp.status();
     let mut builder = Response::builder().status(status.as_u16());
 
     for (name, value) in resp.headers() {
-        if is_hop_by_hop(name.as_str()) {
+        if !should_forward_response_header(name.as_str()) {
             continue;
         }
         builder = builder.header(name.as_str(), value.as_bytes());

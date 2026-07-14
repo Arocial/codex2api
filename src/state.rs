@@ -1,4 +1,6 @@
-use codex_auth_compat::{build_reqwest_client, AuthManager};
+use codex_auth_compat::{
+    build_reqwest_client, build_reqwest_client_with_cookie_store, AuthManager,
+};
 use std::collections::HashMap;
 use std::fs::OpenOptions;
 use std::io::Write;
@@ -8,7 +10,7 @@ use uuid::Uuid;
 
 pub struct AppState {
     pub auth_manager: Arc<AuthManager>,
-    /// Pre-configured reqwest client with Codex User-Agent and originator header.
+    /// Pre-configured reqwest client with Codex headers and a shared in-memory cookie store.
     pub http_client: reqwest::Client,
     /// Backend base URL; `/responses` and `/models` are appended at call time.
     pub backend_base_url: String,
@@ -34,9 +36,9 @@ impl AppState {
         api_key: String,
     ) -> anyhow::Result<Self> {
         let installation_id = load_or_create_installation_id(&codex_home)?;
-        let http_client =
-            build_reqwest_client().expect("failed to build Codex-compatible HTTP client");
-        let auth_manager = Arc::new(AuthManager::new(codex_home, http_client.clone()));
+        let auth_client = build_reqwest_client()?;
+        let http_client = build_reqwest_client_with_cookie_store()?;
+        let auth_manager = Arc::new(AuthManager::new(codex_home, auth_client));
         Ok(Self {
             auth_manager,
             http_client,

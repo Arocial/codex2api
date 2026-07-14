@@ -1,9 +1,37 @@
 use super::*;
 use axum::http::HeaderValue;
 use serde_json::{json, Value};
+use std::ffi::OsString;
+use std::io::{Read, Write};
+use std::net::TcpListener;
+use std::sync::mpsc;
+use std::thread;
 
 const CONTEXT_SESSION_ID: &str = "01890f3e-7b2c-7a1d-8e4f-123456789abc";
 const CONTEXT_TURN_ID: &str = "01890f3e-7b2c-7b2e-8e4f-123456789abc";
+static REFRESH_OVERRIDE_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+struct EnvVarGuard {
+    name: &'static str,
+    previous: Option<OsString>,
+}
+
+impl EnvVarGuard {
+    fn set(name: &'static str, value: &str) -> Self {
+        let previous = std::env::var_os(name);
+        std::env::set_var(name, value);
+        Self { name, previous }
+    }
+}
+
+impl Drop for EnvVarGuard {
+    fn drop(&mut self) {
+        match &self.previous {
+            Some(value) => std::env::set_var(self.name, value),
+            None => std::env::remove_var(self.name),
+        }
+    }
+}
 
 fn test_context() -> CodexRequestContext {
     CodexRequestContext::new(
@@ -178,7 +206,7 @@ fn models_url_includes_required_client_version() {
 }
 
 #[test]
-fn hop_by_hop_classification() {
+fn response_header_forwarding_filters_transport_and_cookie_headers() {
     for h in [
         "connection",
         "Keep-Alive",
@@ -187,10 +215,190 @@ fn hop_by_hop_classification() {
         "upgrade",
     ] {
         assert!(is_hop_by_hop(h), "{h} should be hop-by-hop");
+        assert!(!should_forward_response_header(h));
+    }
+    for h in ["set-cookie", "Set-Cookie", "SET-COOKIE"] {
+        assert!(!is_hop_by_hop(h), "{h} should not be hop-by-hop");
+        assert!(!should_forward_response_header(h));
     }
     for h in ["content-type", "x-request-id", "cache-control"] {
-        assert!(!is_hop_by_hop(h), "{h} should NOT be hop-by-hop");
+        assert!(!is_hop_by_hop(h), "{h} should not be hop-by-hop");
+        assert!(should_forward_response_header(h));
     }
+}
+
+#[tokio::test]
+async fn backend_cookies_are_reused_but_not_forwarded_downstream() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let (request_tx, request_rx) = mpsc::channel();
+    let server = thread::spawn(move || {
+        for request_number in 0..2 {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = Vec::new();
+            let mut buffer = [0; 1024];
+            while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+                let bytes_read = stream.read(&mut buffer).unwrap();
+                if bytes_read == 0 {
+                    break;
+                }
+                request.extend_from_slice(&buffer[..bytes_read]);
+            }
+            if request_number == 1 {
+                request_tx
+                    .send(String::from_utf8(request).unwrap())
+                    .unwrap();
+            }
+
+            let set_cookie = if request_number == 0 {
+                "Set-Cookie: backend_session=stored; Path=/; HttpOnly\r\n"
+            } else {
+                ""
+            };
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\n{set_cookie}Content-Length: 0\r\nConnection: close\r\n\r\n"
+            )
+            .unwrap();
+        }
+    });
+
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("auth.json"),
+        r#"{
+            "tokens": {
+                "access_token": "access",
+                "id_token": "e30.e30.sig"
+            },
+            "last_refresh": "2026-01-01T00:00:00Z"
+        }"#,
+    )
+    .unwrap();
+    let state = AppState::new(
+        dir.path().to_path_buf(),
+        format!("http://{address}"),
+        "0.142.5".into(),
+        "key".into(),
+    )
+    .unwrap();
+    let url = format!("http://{address}/models");
+
+    let first = do_request(&state, &Method::Get, &url, None, None)
+        .await
+        .unwrap();
+    let downstream = match stream_response(first) {
+        Ok(response) => response,
+        Err(_) => panic!("backend response should be streamable"),
+    };
+    assert!(!downstream.headers().contains_key("set-cookie"));
+
+    do_request(&state, &Method::Get, &url, None, None)
+        .await
+        .unwrap();
+    let second_request = request_rx.recv().unwrap();
+    assert!(second_request
+        .lines()
+        .any(|line| line.eq_ignore_ascii_case("cookie: backend_session=stored")));
+    server.join().unwrap();
+}
+
+#[tokio::test]
+async fn cookie_from_unauthorized_response_is_used_after_token_refresh() {
+    let _refresh_override_lock = REFRESH_OVERRIDE_LOCK.lock().await;
+    let backend_listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let backend_address = backend_listener.local_addr().unwrap();
+    let (request_tx, request_rx) = mpsc::channel();
+    let backend_server = thread::spawn(move || {
+        for request_number in 0..2 {
+            let (mut stream, _) = backend_listener.accept().unwrap();
+            let mut request = Vec::new();
+            let mut buffer = [0; 1024];
+            while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+                let bytes_read = stream.read(&mut buffer).unwrap();
+                if bytes_read == 0 {
+                    break;
+                }
+                request.extend_from_slice(&buffer[..bytes_read]);
+            }
+            if request_number == 1 {
+                request_tx
+                    .send(String::from_utf8(request).unwrap())
+                    .unwrap();
+                write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                )
+                .unwrap();
+            } else {
+                write!(
+                    stream,
+                    "HTTP/1.1 401 Unauthorized\r\nSet-Cookie: retry_session=stored; Path=/; HttpOnly\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                )
+                .unwrap();
+            }
+        }
+    });
+
+    let refresh_listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let refresh_address = refresh_listener.local_addr().unwrap();
+    let refresh_server = thread::spawn(move || {
+        let (mut stream, _) = refresh_listener.accept().unwrap();
+        let mut request = Vec::new();
+        let mut buffer = [0; 1024];
+        while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+            let bytes_read = stream.read(&mut buffer).unwrap();
+            if bytes_read == 0 {
+                break;
+            }
+            request.extend_from_slice(&buffer[..bytes_read]);
+        }
+        let body = r#"{"access_token":"refreshed-access"}"#;
+        write!(
+            stream,
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        )
+        .unwrap();
+    });
+    let _refresh_override = EnvVarGuard::set(
+        "CODEX_REFRESH_TOKEN_URL_OVERRIDE",
+        &format!("http://{refresh_address}/oauth/token"),
+    );
+
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("auth.json"),
+        r#"{
+            "tokens": {
+                "access_token": "access",
+                "id_token": "e30.e30.sig",
+                "refresh_token": "refresh"
+            },
+            "last_refresh": "2026-01-01T00:00:00Z"
+        }"#,
+    )
+    .unwrap();
+    let state = AppState::new(
+        dir.path().to_path_buf(),
+        format!("http://{backend_address}"),
+        "0.142.5".into(),
+        "key".into(),
+    )
+    .unwrap();
+    let url = format!("http://{backend_address}/models");
+
+    let response = do_request_with_retry(&state, Method::Get, &url, None, None)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let second_request = request_rx.recv().unwrap();
+    assert!(second_request
+        .lines()
+        .any(|line| line.eq_ignore_ascii_case("cookie: retry_session=stored")));
+
+    backend_server.join().unwrap();
+    refresh_server.join().unwrap();
 }
 
 #[test]
