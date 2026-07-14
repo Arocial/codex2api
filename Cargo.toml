@@ -21,6 +21,7 @@ bytes = "1"
 clap = { version = "4", features = ["derive", "env"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tower-http = { version = "0.6", features = ["request-id", "trace"] }
 http = "1"
 anyhow = "1"
 rand = "0.9"

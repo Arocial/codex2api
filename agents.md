@@ -41,6 +41,10 @@ refresh against a pinned Codex revision. Login delegates to the installed
   a new installation ID per request or process restart.
 - **Error format.** Proxy-generated API errors use the OpenAI-style
   `{ "error": { ... } }` JSON shape.
+- **HTTP logs.** The global trace/request-ID layers log method, URI, version,
+  status, and latency without request bodies or authorization headers. Keep
+  handler errors inside that request span so details correlate through
+  `X-Request-Id`.
 
 ## Adding a new backend endpoint
 

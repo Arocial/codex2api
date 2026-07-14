@@ -220,11 +220,26 @@ scripts/list-models.py \
 
 ## Logging
 
-Log level is controlled by the `RUST_LOG` environment variable:
+Logs are written to stderr through `tracing`. By default, every API and health
+request produces a structured access-log span containing the request ID, HTTP
+method, URI, version, response status, and elapsed milliseconds. Incoming
+`X-Request-Id` values are preserved; otherwise the server generates one, and
+the effective ID is returned in the response header. Request bodies and
+authorization headers are never included in access logs.
+
+Server failures are logged at `ERROR` and include their request span, so the
+request ID can be used to correlate the access record with the detailed proxy
+error. Other completed requests, including client-side 4xx responses, are
+logged at `INFO` with their status.
+
+Log filtering is controlled by the `RUST_LOG` environment variable:
 
 ```sh
 RUST_LOG=debug codex2api
 ```
+
+For normal production access and error logs, the default `info` filter is
+sufficient.
 
 ## Project layout
 

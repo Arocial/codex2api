@@ -9,6 +9,13 @@ use clap::{Parser, Subcommand};
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
+use tower_http::classify::ServerErrorsFailureClass;
+use tower_http::request_id::{
+    MakeRequestUuid, PropagateRequestIdLayer, RequestId, SetRequestIdLayer,
+};
+use tower_http::trace::TraceLayer;
+use tracing::Span;
 
 use state::AppState;
 
@@ -149,6 +156,41 @@ async fn run_server(
     };
     let state = Arc::new(AppState::new(codex_home, base, client_version, api_key)?);
 
+    let request_id_header = http::HeaderName::from_static("x-request-id");
+    let http_trace = TraceLayer::new_for_http()
+        .make_span_with(|request: &http::Request<_>| {
+            let request_id = request
+                .extensions()
+                .get::<RequestId>()
+                .and_then(|id| id.header_value().to_str().ok())
+                .unwrap_or("unknown");
+            tracing::info_span!(
+                "http_request",
+                request_id,
+                method = %request.method(),
+                uri = %request.uri(),
+                version = ?request.version(),
+            )
+        })
+        .on_response(
+            |response: &http::Response<_>, latency: Duration, _span: &Span| {
+                tracing::info!(
+                    status = response.status().as_u16(),
+                    latency_ms = latency.as_millis(),
+                    "request completed"
+                );
+            },
+        )
+        .on_failure(
+            |failure: ServerErrorsFailureClass, latency: Duration, _span: &Span| {
+                tracing::error!(
+                    failure = %failure,
+                    latency_ms = latency.as_millis(),
+                    "request failed"
+                );
+            },
+        );
+
     // `route_layer` only applies to routes registered *before* it, so
     // `/healthz` (added after) stays publicly reachable.
     let app = Router::new()
@@ -159,6 +201,9 @@ async fn run_server(
             proxy::require_bearer,
         ))
         .route("/healthz", get(|| async { "ok" }))
+        .layer(http_trace)
+        .layer(PropagateRequestIdLayer::new(request_id_header.clone()))
+        .layer(SetRequestIdLayer::new(request_id_header, MakeRequestUuid))
         .layer(DefaultBodyLimit::max(proxy::MAX_REQUEST_BODY_SIZE))
         .with_state(state);
 
