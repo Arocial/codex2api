@@ -20,6 +20,13 @@ pub struct Credentials {
     pub access_token: String,
     pub account_id: Option<String>,
     pub is_fedramp: bool,
+    account_identity: String,
+}
+
+impl Credentials {
+    pub fn account_identity(&self) -> &str {
+        &self.account_identity
+    }
 }
 
 #[derive(Debug)]
@@ -184,6 +191,7 @@ fn load_credentials(path: &Path) -> std::io::Result<Option<Credentials>> {
         .get("id_token")
         .and_then(Value::as_str)
         .ok_or_else(|| std::io::Error::other("ID token is not available."))?;
+    let account_identity = account_id.clone().unwrap_or_else(|| id_token.to_string());
     let claims = decode_jwt_payload(id_token).map_err(std::io::Error::other)?;
     let is_fedramp = claims
         .get("https://api.openai.com/auth")
@@ -194,6 +202,7 @@ fn load_credentials(path: &Path) -> std::io::Result<Option<Credentials>> {
         access_token,
         account_id,
         is_fedramp,
+        account_identity,
     }))
 }
 

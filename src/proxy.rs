@@ -203,6 +203,17 @@ fn prepare_responses_body(body: Bytes, ctx: &CodexRequestContext) -> anyhow::Res
     Ok(Bytes::from(serde_json::to_vec(&json)?))
 }
 
+async fn synchronize_backend_account(state: &AppState) -> anyhow::Result<()> {
+    let credentials = state
+        .auth_manager
+        .credentials()
+        .await
+        .map_err(anyhow::Error::from)?
+        .ok_or_else(|| anyhow::anyhow!("not authenticated — run `codex login` first"))?;
+    state.backend_client_for(&credentials)?;
+    Ok(())
+}
+
 /// Build and send an authenticated request to the backend.
 async fn do_request(
     state: &AppState,
@@ -218,13 +229,14 @@ async fn do_request(
         .map_err(anyhow::Error::from)?
         .ok_or_else(|| anyhow::anyhow!("not authenticated — run `codex login` first"))?;
 
+    let http_client = state.backend_client_for(&auth)?;
     let access_token = auth.access_token;
     let account_id = auth.account_id;
     let is_fedramp = auth.is_fedramp;
 
     let mut req = match method {
-        Method::Get => state.http_client.get(url).timeout(SHORT_REQUEST_TIMEOUT),
-        Method::Post => state.http_client.post(url),
+        Method::Get => http_client.get(url).timeout(SHORT_REQUEST_TIMEOUT),
+        Method::Post => http_client.post(url),
     };
 
     req = req.header("Authorization", format!("Bearer {access_token}"));
@@ -389,6 +401,15 @@ pub async fn responses_handler(
         }
     })?;
 
+    synchronize_backend_account(&state).await.map_err(|err| {
+        tracing::error!("Failed to prepare backend account state: {err}");
+        ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            "The proxy could not prepare the Codex backend account.",
+            "proxy_error",
+            "backend_unavailable",
+        )
+    })?;
     let session_id = state.resolve_session_id(requested_session_id(&headers));
     let turn_id = state.resolve_turn_id(requested_turn_id(&headers));
     let context = CodexRequestContext::new(session_id, turn_id, state.installation_id);

@@ -1,5 +1,5 @@
 use codex_auth_compat::{
-    build_reqwest_client, build_reqwest_client_with_cookie_store, AuthManager,
+    build_reqwest_client, build_reqwest_client_with_cookie_store, AuthManager, Credentials,
 };
 use std::collections::HashMap;
 use std::fs::OpenOptions;
@@ -8,10 +8,14 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
+struct BackendClient {
+    account_identity: Option<String>,
+    client: reqwest::Client,
+}
+
 pub struct AppState {
     pub auth_manager: Arc<AuthManager>,
-    /// Pre-configured reqwest client with Codex headers and a shared in-memory cookie store.
-    pub http_client: reqwest::Client,
+    backend_client: Mutex<BackendClient>,
     /// Backend base URL; `/responses` and `/models` are appended at call time.
     pub backend_base_url: String,
     /// Codex CLI protocol version sent to the backend models endpoint.
@@ -37,11 +41,14 @@ impl AppState {
     ) -> anyhow::Result<Self> {
         let installation_id = load_or_create_installation_id(&codex_home)?;
         let auth_client = build_reqwest_client()?;
-        let http_client = build_reqwest_client_with_cookie_store()?;
+        let backend_client = BackendClient {
+            account_identity: None,
+            client: build_reqwest_client_with_cookie_store()?,
+        };
         let auth_manager = Arc::new(AuthManager::new(codex_home, auth_client));
         Ok(Self {
             auth_manager,
-            http_client,
+            backend_client: Mutex::new(backend_client),
             backend_base_url,
             models_client_version,
             installation_id,
@@ -49,6 +56,27 @@ impl AppState {
             turn_ids: Mutex::new(HashMap::new()),
             api_key,
         })
+    }
+
+    pub fn backend_client_for(&self, credentials: &Credentials) -> anyhow::Result<reqwest::Client> {
+        let identity = credentials.account_identity();
+        let mut backend = self
+            .backend_client
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if backend.account_identity.as_deref() != Some(identity) {
+            backend.client = build_reqwest_client_with_cookie_store()?;
+            backend.account_identity = Some(identity.to_string());
+            self.session_ids
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .clear();
+            self.turn_ids
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .clear();
+        }
+        Ok(backend.client.clone())
     }
 
     pub fn resolve_session_id(&self, client_session_id: Option<String>) -> Uuid {

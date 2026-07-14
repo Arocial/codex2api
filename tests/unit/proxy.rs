@@ -172,7 +172,9 @@ fn codex_headers_match_request_context() {
     .unwrap();
     let ctx = test_context();
     let request = apply_codex_request_headers(
-        state.http_client.post("https://example.com/responses"),
+        codex_auth_compat::build_reqwest_client_with_cookie_store()
+            .unwrap()
+            .post("https://example.com/responses"),
         &state,
         &ctx,
     )
@@ -228,12 +230,12 @@ fn response_header_forwarding_filters_transport_and_cookie_headers() {
 }
 
 #[tokio::test]
-async fn backend_cookies_are_reused_but_not_forwarded_downstream() {
+async fn backend_cookies_are_reused_for_one_account_but_cleared_on_switch() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
     let (request_tx, request_rx) = mpsc::channel();
     let server = thread::spawn(move || {
-        for request_number in 0..2 {
+        for request_number in 0..3 {
             let (mut stream, _) = listener.accept().unwrap();
             let mut request = Vec::new();
             let mut buffer = [0; 1024];
@@ -244,7 +246,7 @@ async fn backend_cookies_are_reused_but_not_forwarded_downstream() {
                 }
                 request.extend_from_slice(&buffer[..bytes_read]);
             }
-            if request_number == 1 {
+            if request_number > 0 {
                 request_tx
                     .send(String::from_utf8(request).unwrap())
                     .unwrap();
@@ -264,12 +266,14 @@ async fn backend_cookies_are_reused_but_not_forwarded_downstream() {
     });
 
     let dir = tempfile::tempdir().unwrap();
+    let auth_path = dir.path().join("auth.json");
     std::fs::write(
-        dir.path().join("auth.json"),
+        &auth_path,
         r#"{
             "tokens": {
-                "access_token": "access",
-                "id_token": "e30.e30.sig"
+                "access_token": "access-a",
+                "id_token": "e30.e30.sig",
+                "account_id": "account-a"
             },
             "last_refresh": "2026-01-01T00:00:00Z"
         }"#,
@@ -292,14 +296,39 @@ async fn backend_cookies_are_reused_but_not_forwarded_downstream() {
         Err(_) => panic!("backend response should be streamable"),
     };
     assert!(!downstream.headers().contains_key("set-cookie"));
+    let account_a_session = state.resolve_session_id(Some("client-session".into()));
 
     do_request(&state, &Method::Get, &url, None, None)
         .await
         .unwrap();
-    let second_request = request_rx.recv().unwrap();
-    assert!(second_request
+    let same_account_request = request_rx.recv().unwrap();
+    assert!(same_account_request
         .lines()
         .any(|line| line.eq_ignore_ascii_case("cookie: backend_session=stored")));
+
+    std::fs::write(
+        &auth_path,
+        r#"{
+            "tokens": {
+                "access_token": "access-b",
+                "id_token": "e30.e30.sig",
+                "account_id": "account-b"
+            },
+            "last_refresh": "2026-01-01T00:00:00Z"
+        }"#,
+    )
+    .unwrap();
+    do_request(&state, &Method::Get, &url, None, None)
+        .await
+        .unwrap();
+    let switched_account_request = request_rx.recv().unwrap();
+    assert!(!switched_account_request
+        .lines()
+        .any(|line| line.to_ascii_lowercase().starts_with("cookie:")));
+    assert_ne!(
+        account_a_session,
+        state.resolve_session_id(Some("client-session".into()))
+    );
     server.join().unwrap();
 }
 
