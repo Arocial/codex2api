@@ -410,7 +410,13 @@ pub async fn responses_handler(
             "backend_unavailable",
         )
     })?;
-    let session_id = state.resolve_session_id(requested_session_id(&headers));
+    let requested_session_id = requested_session_id(&headers);
+    if requested_session_id.is_none() {
+        tracing::warn!(
+            "Missing or invalid X-Session-Id/session-id header; generating a new session ID"
+        );
+    }
+    let session_id = state.resolve_session_id(requested_session_id);
     let turn_id = state.resolve_turn_id(requested_turn_id(&headers));
     let context = CodexRequestContext::new(session_id, turn_id, state.installation_id);
     let prepared = prepare_responses_body(body, &context).map_err(|err| {
